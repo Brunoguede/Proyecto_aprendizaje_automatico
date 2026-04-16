@@ -5,8 +5,19 @@ format: html
 editor: visual
 ---
 
-## Quarto
+## Proyecto Aprendizaje Automático
+
+Grupo 12
+
+Cargamos los datos
 
 ```{r}
+library(readxl)
+data <- read_excel("dataset-uci.xlsx")
+```
 
+Confirmamos que se han cargado correctamente
+
+```{r}
+head(data)
 ```
