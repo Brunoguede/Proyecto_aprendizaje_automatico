@@ -1,0 +1,12 @@
+---
+title: "Proyecto_Aprendizaje_Automatico"
+author: "Bruno Guedeja-Marrón Ramos, Aitana García Herranz, Pablo Cancela Roel"
+format: html
+editor: visual
+---
+
+## Quarto
+
+```{r}
+
+```
