@@ -1,0 +1,644 @@
+---
+title: "Neurofibromatosis type 1"
+author: "Isaac y Carmen"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    theme: flatly
+    toc: yes
+    toc_float:
+      collapsed: true
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# Cargamos las librerias que vamos necesitando a lo largo del codigo
+library(statip)
+```
+
+# Introducción
+
+El conjunto de datos contiene información clinica y demográfica de
+pacientes que padecen neurofibromatosis de tipo 1.
+
+Los datos han sido extraídos del [repositorio UCI Machine
+Learning](https://archive.ics.uci.edu/dataset/1162/neurofibromatosis+type+1+clinical+symptoms+of+familial+and+sporadic+cases).
+De acuerdo con la información del propio repositorio la
+neurofibromatosis de tipo 1 es una enfermedad que se caracteriza por
+tener un cuadro clínico muy variable, influenciado tanto por el
+componente genético como por factores ambientales.A esto se añade la
+dificultad extra a la hora del diagnostico por la gran variabilidad de
+los sintomas en los pacientes. El objetivo de este estudio es examinar
+las diferencias en las características clinicas entre los casos
+genéticos y los esporádicos
+
+Según la descripción oficial de los datos, las variables que conforman
+el conjunto de datos son:
+
+-   With Tumors: binario (variable objetivo)
+-   Healthy: binario
+-   Age of Mother: entero
+-   Age of Father: entero
+-   Age at First Diagnosis: entero
+-   Café au lait (CLS): binario
+-   Axillary Freckles: binario
+-   Inguinal Freckles: binario
+-   Lisch Nodules: binario
+-   Dermal Neurofibromins: binario
+-   Plexiform Neurofibromins: binario
+-   Optic Glioma: binario
+-   Skeletal Dysplasia: binario
+-   Learning Disability: binario
+-   Hypertension: binario
+-   Astrocytoma: binario
+-   Hamartoma: binario
+-   Scoliosis: binario
+-   Other Symptoms : binario
+-   Familial: binario
+-   Sporadic: binario
+
+En este caso el problema se clasifica en un problema binario, el interes
+consiste en identificar con precisión la probabilidad de que un paciente
+pertenezca a caso esporádico o familiar
+
+# Business understanding
+
+Tras observar nustro conjunto nos hemos planteado las siguientes
+cuestiones -¿Son los casos familiares identificados a edades más
+tempranas que los esporádicos? -¿Qué sintómas son los que más
+diferencian entre un caso familiar y uno esporádico? - ¿Hay alguna
+relación entre la edad de los progenitores y la aparición de casos
+esporádicos?
+
+# Data understanding
+
+A continuación leemos los datos y vemos el tipo de variables.
+
+```{r lectura, warning=FALSE}
+
+# lectura de datos en csv
+datos_nf1 <- dataset_uci
+
+ntotal <- dim(datos_nf1)[1] 
+ptotal <- dim(datos_nf1)[2] 
+
+
+```
+
+Comprobamos que tenemos $n=$`r ntotal` observaciones y `r ptotal`
+variables en la base de datos.
+
+```{r}
+datos_nf1$Target <- as.numeric(as.character(datos_nf1[[2]]))
+```
+
+```{r}
+datos_nf1$Target <- factor(datos_nf1$Target, 
+                           levels = c(0, 1), 
+                           labels = c("Sporadic", "Familiar"))
+```
+
+```{r}
+table(datos_nf1$Target)
+```
+
+Para poder asegurar una buena capacidad de generalización de los modelos
+dividimos nuestro conjunto de datos en tres train(50%), test(25%) y
+validation(25%)
+
+```{r particion}
+# mediante una semilla conseguimos que el ejercicio sea reproducible
+set.seed(1)
+
+# calculamos dimensiones
+ntotal <- nrow(datos_nf1)
+indices <- 1:ntotal
+ntrain <- ntotal * .5
+ntest <- ntotal * .25
+nval <- ntotal - (ntrain+ntest)
+# creamos índices
+indices.train <- sample(indices, ntrain, replace = FALSE)
+indices.test <- sample(indices[-indices.train],ntest,replace=FALSE)
+indices.val <- indices[-c(indices.train,indices.test)]
+#dividimos el conjunto
+train  <- datos_nf1[indices.train, ]
+test   <- datos_nf1[indices.test, ]
+val   <- datos_nf1[indices.val, ]
+colnames(train) <- make.names(colnames(train))
+
+
+
+```
+
+```{r}
+train$Case.Type <- factor(as.numeric(as.character(train[[2]])), 
+                          levels = c(0, 1), 
+                          labels = c("Sporadic", "Familiar"))
+
+test$Case.Type <- factor(as.numeric(as.character(test[[2]])), 
+                         levels = c(0, 1), 
+                         labels = c("Sporadic", "Familiar"))
+
+val$Case.Type <- factor(as.numeric(as.character(val[[2]])), 
+                        levels = c(0, 1), 
+                        labels = c("Sporadic", "Familiar"))
+
+```
+
+vamos a ver por encima las variables
+
+```{r}
+str(train)
+```
+
+# Análisis exploratorio de datos
+
+Empezaremos nuestro análisis exploratorio comprobando que no tenemos
+ningún valor faltante
+
+```{r}
+sum_na <- colSums(is.na(train))
+print(sum_na[sum_na > 0])
+```
+
+observamos la aparición de valores faltantes en todas las variables de
+edad al tener tantos lo mejor es hacer una imputación por la mediana
+
+```{r}
+names(train) <- make.names(names(train))
+names(test) <- make.names(names(test))
+names(val) <- make.names(names(val))
+# 1. Calculamos las medianas del conjunto de TRAIN
+mediana_madre <- median(train$Age.of.Mother, na.rm = TRUE)
+mediana_padre <- median(train$Age.of.Father, na.rm = TRUE)
+mediana_diag  <- median(train$Age.at.First.Diagnosis, na.rm = TRUE)
+
+# 2. Imputamos en TRAIN
+train$Age.of.Mother[is.na(train$Age.of.Mother)] <- mediana_madre
+train$Age.of.Father[is.na(train$Age.of.Father)] <- mediana_padre
+train$Age.at.First.Diagnosis[is.na(train$Age.at.First.Diagnosis)] <- mediana_diag
+
+# 3. Imputamos en TEST y VAL usando las medianas de TRAIN
+test$Age.of.Mother[is.na(test$Age.of.Mother)] <- mediana_madre
+test$Age.of.Father[is.na(test$Age.of.Father)] <- mediana_padre
+test$Age.at.First.Diagnosis[is.na(test$Age.at.First.Diagnosis)] <- mediana_diag
+
+val$Age.of.Mother[is.na(val$Age.of.Mother)] <- mediana_madre
+val$Age.of.Father[is.na(val$Age.of.Father)] <- mediana_padre
+val$Age.at.First.Diagnosis[is.na(val$Age.at.First.Diagnosis)] <- mediana_diag
+
+# Verificamos que ya no quedan NAs
+sum(is.na(train))
+```
+
+observamos que ya no tenemos ningun valor faltante
+
+Ahora estudiaremos un poco la variable objetivo
+
+```{r}
+table(train$Case.Type)
+```
+
+```{r}
+library(ggplot2)
+ggplot(train, aes(x = Case.Type, fill = Case.Type)) +
+  geom_bar() +
+  geom_text(stat='count', aes(label=..count..), vjust=-0.5) +
+  scale_fill_manual(values = c("Sporadic" = "#56B4E9", "Familiar" = "#E69F00")) +
+  labs(title = "Distribución de Casos: Sporadic vs Familiar",
+       x = "Tipo de Caso", y = "Número de Pacientes") +
+  theme_minimal()
+```
+
+podemos ver que tenemos 118 pacientes detectados con neurofibromatosis
+de manera esporádica y 30 de manera genética
+
+Vamos a comprobar la relación entre los casos esporádicos y la edad de
+los padres mediante un grafico
+
+```{r}
+#edad del padre
+ggplot(train, aes(x = Age.of.Father, fill = Case.Type)) +
+  geom_density(alpha = 0.5) +
+  labs(title = "Distribución de la Edad del Padre según Origen",
+       x = "Edad del Padre", y = "Densidad") +
+  theme_minimal()
+```
+
+observamos que ambos grupos tienen el pico alrededor de los 30 años,
+vemos que según avanza la edad entre los 35 y 43 los casos esporádicos
+son algo mayores que los familiares, por tanto podría sugerirnos que hay
+una mayor proporción de mutaciones en padres en esa brecha de edad. Sin
+embargo de los 43 a los 56 los casos genéticos suben.
+
+```{r}
+#edad de la madre
+ggplot(train, aes(x = Age.of.Mother, fill = Case.Type)) +
+  geom_density(alpha = 0.5) +
+  labs(title = "Distribución de la Edad del Padre según Origen",
+       x = "Edad del Madre", y = "Densidad") +
+  theme_minimal()
+```
+
+A diferencia del primer gráfico aqui nos encontramos un volumen
+ligeramente mayor entre los 22-25 años en el caso de esporádicos, en el
+contrario es un poco más tardio entre los 27 y 28 años. Ambas curvas
+muestran una forma muy similar lo que indica que no es un factor muy
+diferenciador. Para apoyar estos graficos vamos a apoyarnos en numeros
+
+```{r}
+library(dplyr)
+
+resumen_edades <- train %>%
+  group_by(Case.Type) %>%
+  summarise(
+    Recuento = n(),
+    Media_Padre = mean(Age.of.Father, na.rm = TRUE),
+    Mediana_Padre = median(Age.of.Father, na.rm = TRUE),
+    SD_Padre = sd(Age.of.Father, na.rm = TRUE),
+    Min_Padre = min(Age.of.Father, na.rm = TRUE),
+    Max_Padre = max(Age.of.Father, na.rm = TRUE),
+    Media_Madre = mean(Age.of.Mother, na.rm = TRUE),
+    Mediana_Madre = median(Age.of.Mother, na.rm = TRUE)
+  )
+
+print(resumen_edades)
+```
+
+observamos una minima diferencia en las medias, encontramos una
+diferencia significativa en el valor máximo de edades en el padre siendo
+de 62 años la esporádica y 50 la familiar lo que podría corroborar la
+teoria de que las mutaciones esporádicas esten ligadas a una edad mayor
+en el padre. vamos a comprobar outliers
+
+```{r}
+library(ggplot2)
+
+ggplot(train, aes(x = Case.Type, y = Age.of.Father, fill = Case.Type)) +
+  geom_boxplot(outlier.colour = "red", outlier.shape = 16, outlier.size = 3) +
+  stat_summary(fun = mean, geom = "point", shape = 23, size = 3, fill = "white") +
+  labs(title = "Detección de Outliers en Edad Paterna",
+       subtitle = "Los puntos rojos representan valores atípicos ",
+       y = "Edad del Padre") +
+  theme_minimal()
+```
+
+vamos a pasar a conocer algo más los síntomas
+
+```{r}
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+
+# 1. Creamos el dataset para el gráfico de forma automática
+datos_barras <- train %>%
+  # Seleccionamos Case.Type y todas las columnas numéricas que NO sean edades
+  select(Case.Type, where(is.numeric)) %>%
+  select(-contains("Age")) %>% 
+  # Pasamos a formato largo para el gráfico
+  pivot_longer(cols = -Case.Type, names_to = "Sintoma", values_to = "Presencia") %>%
+  # Calculamos el porcentaje
+  group_by(Case.Type, Sintoma) %>%
+  summarise(Porcentaje = mean(Presencia, na.rm = TRUE) * 100, .groups = 'drop')
+
+# 2. Gráfico "Normal" y limpio
+ggplot(datos_barras, aes(x = reorder(Sintoma, Porcentaje), y = Porcentaje, fill = Case.Type)) +
+  geom_bar(stat = "identity", position = "dodge", color = "white") +
+  scale_fill_manual(values = c("Sporadic" = "#3366CC", "Familiar" = "#FF9900")) +
+  coord_flip() + # Lo ponemos de lado para que los nombres largos no se pisen
+  labs(title = "Prevalencia de Síntomas por Origen de la NF1",
+       x = "Hallazgo Clínico",
+       y = "Pacientes con el síntoma (%)",
+       fill = "Origen") +
+  theme_minimal()
+```
+
+observamos que el síntoma mas común es café au lait, destaca optic
+glioma como síntoma de caso familiar, por lo que puede ser un sintoma
+altamente ligado al componente hereditario. Otros sintomas como lisch
+nodules, other symptoms, dermal neurofibromins también tienen un
+porcentaje mayor del grupo familiar. Sin embargo en café au lait,
+Axillary C, inguinial café au lait tienen más casos esporádicos
+
+# Técnicas de reducción de la dimensión
+
+PCA mediante prcomp()
+
+```{r}
+# Seleccionamos solo las variables numéricas de train
+datos_pca <- train %>% select(where(is.numeric))
+
+
+pca_auto <- prcomp(datos_pca, scale = T)
+
+
+plot(pca_auto)                
+                              
+```
+
+podemos observar que la varianza esta bastante repartida vamos ahora a
+verlo de forma numérica
+
+```{r}
+summary(pca_auto)
+```
+
+```{r}
+biplot(pca_auto, main = "Biplot NF1: Variables y Pacientes")
+
+```
+
+Programando el código para obtener las componentes principales
+
+```{r}
+# 1. Preparar los datos (solo numéricos y escalados)
+datos_matriz <- train %>% select(where(is.numeric))
+datos_escalados <- scale(datos_matriz)
+
+# 2. Calcular la Matriz de Correlación
+matriz_cor <- cor(datos_escalados)
+
+# 3. Calcular Autovalores y Autovectores 
+eigen_resultado <- eigen(matriz_cor)
+
+# 4. Extraer Loadings (Rotación) y Varianzas
+loadings_manual <- eigen_resultado$vectors
+colnames(loadings_manual) <- paste0("PC", 1:ncol(loadings_manual))
+rownames(loadings_manual) <- colnames(datos_matriz)
+
+autovalores <- eigen_resultado$values  
+```
+
+Ahora vamos a compararlas
+
+```{r}
+# Ejecución automática para comparar
+pca_auto <- prcomp(datos_matriz, scale = TRUE)
+
+# Comparar los Pesos (Loadings) del PC1
+comparacion <- data.frame(
+  Variable = rownames(pca_auto$rotation),
+  Automatico = pca_auto$rotation[,1],
+  Manual = loadings_manual[,1]
+)
+
+print(comparacion)
+
+# Comprobar si las varianzas (autovalores) coinciden
+all.equal(pca_auto$sdev^2, eigen_resultado$values)
+```
+
+Comprobamos que ambos métodos nos dan exactamente los mismos resultados,
+tras esta comprobación se pueden sacar las siguientes conclusiones:
+tenemos un modelo complejo donde la varianza está muy repartida,
+explicando nuestra primera componente solo el 14.33% de la varianza, por
+lo que la enfermedad no se puede detectar solo con un síntoma si no por
+una combinación de múltiples factores. Para lograr llegar a un 80% de
+varianza, es decir, una información aceptable necesitamos considerar los
+10 componentes principales aunque ha servido para reducir la
+dimensionalidad si solo nos quedásemos con las dos componentes
+principaales la pérdida de información sería grande.
+
+# Análisis no supervisado
+
+*matriz de semejanza*
+
+```{r}
+library(factoextra)
+
+# 1. Calculamos la matriz de distancias sobre los datos escalados
+# (Asegúrate de que 'datos_escalados' es el objeto que creamos en el PCA)
+distance <- get_dist(datos_escalados, method = "euclidean")
+
+# 2. Visualización de la matriz de desemejanza
+fviz_dist(distance, 
+          gradient = list(low = "#00AFBB", mid = "white", high = "#FC4E07"),
+          show_labels = FALSE)  
+  labs(title = "Matriz de Desemejanza (Distancia Euclídea)",
+       subtitle = "NF1: Similitud entre perfiles de pacientes")
+```
+
+En el mapa de calor interpretamos que los tonos azules son los pacientes
+con mayor parecido y los tonos naranjas son los más distintos
+
+comprobamos si cumple las condiciones: Hemos optado por la distancia
+euclidea sobre datos estandarizados que nos permite integrar en nuestro
+analisis conjuntamente las variables demográficas y las clinicas. Esta
+métrica cumple con los axiomas - coincidencia :
+$\delta(x, y) = 0 \iff x = y$ - No negatividad: $\delta(x, y) \geq 0$ -
+Simetría: $\delta(x, y) = \delta(y, x)$ además cumple con la desigualdad
+triangular lo que la define como una distancia(métrica)
+$\delta(x, y) \leq \delta(x, z) + \delta(y, z)$
+
+*resultados clustering tanto con métodos jerárquicos como no
+jerárquicos* cluster no jerárquico k medias
+
+```{r}
+set.seed(123) # Para que los resultados sean siempre los mismos
+k2 <- kmeans(datos_escalados, centers = 2, nstart = 25)
+str(k2)
+```
+
+La revisión de la estructura del modelo K-means (str(k2)) muestra la
+creación de dos grupos de diferentes tamaños (31 y 117 personas,
+respectivamente). El estudio de los centroides (centers) indica que el
+grupo más pequeño presenta diferencias importantes en relación con la
+media en variables esenciales, lo que podría señalar un fenotipo con
+mayor gravedad clínica. No obstante, la relación entre la varianza de
+los grupos y la varianza total (betweenss/totss) sugiere una separación
+moderada, que corresponde con la complejidad de detección de la
+neurofibromatosis tipo 1.
+
+```{r}
+k2
+```
+
+```{r}
+fviz_cluster(k2, data = datos_escalados)
+
+
+```
+
+Tras observar el gráfico podemos ver dos perfiles de pacientes
+distintos, El cluster 2 agrupa perfiles muy similares entre ellos sin
+embargo el cluster 1 incluye los casos con mayor variabilidad y presenta
+valores muy extremos.
+
+cluster jerárquico
+
+```{r}
+library(cluster)
+library(purrr)
+
+# Definimos los métodos a evaluar
+m <- c("average", "single", "complete", "ward")
+names(m) <- c("average", "single", "complete", "ward")
+
+# Función para calcular el AC (usando tus datos escalados 'df_clust')
+ac <- function(x) { agnes(datos_escalados, method = x)$ac }
+map_dbl(m, ac)
+```
+
+obtenemos que el método de ward tiene el Ac más cercano a uno por tanto
+identificara mejor los grupos
+
+```{r}
+# Calculamos el clustering
+d <- dist(datos_escalados, method = "euclidean")
+hc_ward <- hclust(d, method = "ward.D2")
+
+# Dibujamos el dendrograma
+plot(hc_ward, cex = 0.6, main = "Dendrograma de Pacientes NF1 (Método Ward)")
+# Si el método del codo o la silueta sugieren 2 grupos:
+rect.hclust(hc_ward, k = 2, border = "pink")
+```
+
+```{r}
+library(factoextra)
+
+# Método de la silueta (Silhouette) para clustering jerárquico
+fviz_nbclust(datos_escalados, FUN = hcut, method = "silhouette") +
+  labs(title = "Número óptimo de clusters (Método Silueta)")
+```
+
+para determinar el número óptimo de grupos hemos usado el método de la
+silueta media y como podemos observar el valor máximo se obtiene en k=2
+por tanto validamos la elección de dos clústeres
+
+```{r}
+# Corte final basado en la silueta (k=2)
+sub_grp <- cutree(hc_ward, k = 2)
+
+# Visualización en el dendrograma
+plot(hc_ward, cex = 0.6, main = "Dendrograma NF1: Corte Óptimo (k=2)")
+rect.hclust(hc_ward, k = 2, border = c("#00AFBB", "#FC4E07"))
+
+# Tabla de validación final
+table(Cluster_Silueta = sub_grp, Tipo_Real = train$Case.Type)
+```
+
+# Análisis supervisado
+```{r}
+library(tidyverse)
+library(caret)
+library(randomForest)
+library(rpart)
+
+#cargamos nuestras funciones
+source("modelos.R") 
+
+# Fijamos semilla para que los resultados sean replicables
+set.seed(123)
+```
+
+
+```{r}
+# Selección de variables numéricas y objetivo
+X_train <- train %>% select(where(is.numeric))
+X_test  <- test  %>% select(where(is.numeric))
+
+y_train <- train$Case.Type
+y_test  <- test$Case.Type
+
+# Estandarización (Basada en el conjunto de entrenamiento)
+params_scale <- preProcess(X_train, method = c("center", "scale"))
+X_train_sc   <- predict(params_scale, X_train)
+X_test_sc    <- predict(params_scale, X_test)
+```
+
+búsqueda de hiperparámetros
+```{r}
+# 2. DEFINICIÓN DE LA FUNCIÓN DE VALIDACIÓN CRUZADA (Para el Grid Search)
+# ------------------------------------------------------------------------------
+cv_generic <- function(model_func, X, y, param = NULL, k_folds = 5) {
+  set.seed(123)
+  # Creamos los pliegues (folds)
+  folds <- sample(1:k_folds, nrow(X), replace = TRUE)
+  acc_folds <- c()
+  
+  for (f in 1:k_folds) {
+    # División Train/Validation interna
+    X_tr <- X[folds != f, ]; y_tr <- y[folds != f]
+    X_va <- X[folds == f, ]; y_va <- y[folds == f]
+    
+    # Ejecución del modelo con o sin parámetro
+    if (is.null(param)) {
+      pred <- model_func(X_tr, y_tr, X_va)
+    } else {
+      pred <- model_func(X_tr, y_tr, X_va, param)
+    }
+    acc_folds <- c(acc_folds, mean(pred == y_va))
+  }
+  return(mean(acc_folds))
+}
+
+
+```
+```{r}
+# 3. GRID SEARCH PARA k-NN (Optimización de Vecinos)
+# ------------------------------------------------------------------------------
+# Definimos los valores que queremos probar
+k_grid <- seq(1, 15, by = 2) 
+
+# Ejecutamos la búsqueda del mejor Accuracy
+cat("Iniciando Grid Search para k-NN...\n")
+res_cv_knn <- sapply(k_grid, function(k_val) {
+  cv_generic(knn_custom, X_train_sc, y_train, param = k_val, k_folds = 5)
+})
+
+# Guardamos el mejor k
+best_k <- k_grid[which.max(res_cv_knn)]
+cat("Mejor k encontrado:", best_k, "\n")
+
+# Gráfico para la memoria
+plot(k_grid, res_cv_knn, type = "b", pch = 19, col = "blue",
+     main = "Optimización de Hiperparámetros (k-NN)",
+     xlab = "Número de Vecinos (k)", ylab = "Accuracy (CV)")
+abline(v = best_k, col = "red", lty = 2)
+```
+
+modelos
+```{r}
+pred_knn <- knn_custom(X_train_sc, y_train, X_test_sc, k = best_k)
+
+# B. LDA (Manual)
+pred_lda <- lda_custom(X_train_sc, y_train, X_test_sc)
+
+# C. Naïve Bayes 
+pred_nb <- naive_bayes_custom(X_train_sc, y_train, X_test_sc)
+
+# D. AdaBoost 
+pred_boost <- adaboost_custom(X_train_sc, y_train, X_test_sc, n_iter = 50)
+
+# E. Random Forest 
+rf_fit <- train(Case.Type ~ ., data = train, method = "rf",
+                trControl = trainControl(method = "cv", number = 5),
+                tuneGrid = expand.grid(mtry = c(2, 4, 6)))
+pred_rf <- predict(rf_fit, test)
+```
+
+
+
+
+# Comparación y selección de modelos
+Tabla comparativa de modelos 
+```{r}
+resultados_finales <- data.frame(
+  Modelo = c("k-NN", "LDA", "Naïve Bayes", "AdaBoost", "Random Forest"),
+  Accuracy = c(
+    mean(pred_knn == y_test),
+    mean(pred_lda == y_test),
+    mean(pred_nb == y_test),
+    mean(pred_boost == y_test),
+    mean(pred_rf == y_test)
+  )
+)
+
+print(resultados_finales)
+
+
+
+# Conclusiones
