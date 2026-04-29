@@ -179,172 +179,126 @@ y_test  <- test$`Case Type`
 
 # Análisis exploratorio de datos
 
-Empezaremos nuestro análisis exploratorio comprobando que no tenemos
-ningún valor faltante
-
-```{r}
-sum_na <- colSums(is.na(train))
-print(sum_na[sum_na > 0])
-```
-
-observamos la aparición de valores faltantes en todas las variables de
-edad al tener tantos lo mejor es hacer una imputación por la mediana
-
-```{r}
-names(train) <- make.names(names(train))
-names(test) <- make.names(names(test))
-names(val) <- make.names(names(val))
-# 1. Calculamos las medianas del conjunto de TRAIN
-mediana_madre <- median(train$Age.of.Mother, na.rm = TRUE)
-mediana_padre <- median(train$Age.of.Father, na.rm = TRUE)
-mediana_diag  <- median(train$Age.at.First.Diagnosis, na.rm = TRUE)
-
-# 2. Imputamos en TRAIN
-train$Age.of.Mother[is.na(train$Age.of.Mother)] <- mediana_madre
-train$Age.of.Father[is.na(train$Age.of.Father)] <- mediana_padre
-train$Age.at.First.Diagnosis[is.na(train$Age.at.First.Diagnosis)] <- mediana_diag
-
-# 3. Imputamos en TEST y VAL usando las medianas de TRAIN
-test$Age.of.Mother[is.na(test$Age.of.Mother)] <- mediana_madre
-test$Age.of.Father[is.na(test$Age.of.Father)] <- mediana_padre
-test$Age.at.First.Diagnosis[is.na(test$Age.at.First.Diagnosis)] <- mediana_diag
-
-val$Age.of.Mother[is.na(val$Age.of.Mother)] <- mediana_madre
-val$Age.of.Father[is.na(val$Age.of.Father)] <- mediana_padre
-val$Age.at.First.Diagnosis[is.na(val$Age.at.First.Diagnosis)] <- mediana_diag
-
-# Verificamos que ya no quedan NAs
-sum(is.na(train))
-```
-
-observamos que ya no tenemos ningun valor faltante
-
-Ahora estudiaremos un poco la variable objetivo
-
-```{r}
-table(train$Case.Type)
-```
-
+vamos a comenzar realizando un análisis de la variable objetivo
 ```{r}
 library(ggplot2)
-ggplot(train, aes(x = Case.Type, fill = Case.Type)) +
-  geom_bar() +
-  geom_text(stat='count', aes(label=..count..), vjust=-0.5) +
-  scale_fill_manual(values = c("Sporadic" = "#56B4E9", "Familiar" = "#E69F00")) +
-  labs(title = "Distribución de Casos: Sporadic vs Familiar",
-       x = "Tipo de Caso", y = "Número de Pacientes") +
-  theme_minimal()
-```
-
-podemos ver que tenemos 118 pacientes detectados con neurofibromatosis
-de manera esporádica y 30 de manera genética
-
-Vamos a comprobar la relación entre los casos esporádicos y la edad de
-los padres mediante un grafico
-
-```{r}
-#edad del padre
-ggplot(train, aes(x = Age.of.Father, fill = Case.Type)) +
-  geom_density(alpha = 0.5) +
-  labs(title = "Distribución de la Edad del Padre según Origen",
-       x = "Edad del Padre", y = "Densidad") +
-  theme_minimal()
-```
-
-observamos que ambos grupos tienen el pico alrededor de los 30 años,
-vemos que según avanza la edad entre los 35 y 43 los casos esporádicos
-son algo mayores que los familiares, por tanto podría sugerirnos que hay
-una mayor proporción de mutaciones en padres en esa brecha de edad. Sin
-embargo de los 43 a los 56 los casos genéticos suben.
-
-```{r}
-#edad de la madre
-ggplot(train, aes(x = Age.of.Mother, fill = Case.Type)) +
-  geom_density(alpha = 0.5) +
-  labs(title = "Distribución de la Edad del Padre según Origen",
-       x = "Edad del Madre", y = "Densidad") +
-  theme_minimal()
-```
-
-A diferencia del primer gráfico aqui nos encontramos un volumen
-ligeramente mayor entre los 22-25 años en el caso de esporádicos, en el
-contrario es un poco más tardio entre los 27 y 28 años. Ambas curvas
-muestran una forma muy similar lo que indica que no es un factor muy
-diferenciador. Para apoyar estos graficos vamos a apoyarnos en numeros
-
-```{r}
 library(dplyr)
 
-resumen_edades <- train %>%
-  group_by(Case.Type) %>%
-  summarise(
-    Recuento = n(),
-    Media_Padre = mean(Age.of.Father, na.rm = TRUE),
-    Mediana_Padre = median(Age.of.Father, na.rm = TRUE),
-    SD_Padre = sd(Age.of.Father, na.rm = TRUE),
-    Min_Padre = min(Age.of.Father, na.rm = TRUE),
-    Max_Padre = max(Age.of.Father, na.rm = TRUE),
-    Media_Madre = mean(Age.of.Mother, na.rm = TRUE),
-    Mediana_Madre = median(Age.of.Mother, na.rm = TRUE)
-  )
+# Tabla de frecuencias
+tabla_clases <- as.data.frame(table(train$`Case Type`))
+colnames(tabla_clases) <- c("Tipo", "Frecuencia")
 
-print(resumen_edades)
+ggplot(tabla_clases, aes(x = Tipo, y = Frecuencia, fill = Tipo)) +
+  geom_bar(stat = "identity", color = "white") +
+  geom_text(aes(label = Frecuencia), vjust = -0.3) +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Set1") +
+  labs(title = "Distribución de la Variable Objetivo (Train)",
+       subtitle = "Casos Esporádicos vs Familiares",
+       x = "Origen de la Mutación", y = "Cantidad de Pacientes")
 ```
+observamos que no hay tanta diferencia en el número de casos, aunque son ligeramente mayores los detectados de forma esporádica 93 en total en comparación con los 85 de casos familiares 
 
-observamos una minima diferencia en las medias, encontramos una
-diferencia significativa en el valor máximo de edades en el padre siendo
-de 62 años la esporádica y 50 la familiar lo que podría corroborar la
-teoria de que las mutaciones esporádicas esten ligadas a una edad mayor
-en el padre. vamos a comprobar outliers
-
+continuamos con la visualizacion de las edades 
 ```{r}
-library(ggplot2)
-
-ggplot(train, aes(x = Case.Type, y = Age.of.Father, fill = Case.Type)) +
-  geom_boxplot(outlier.colour = "red", outlier.shape = 16, outlier.size = 3) +
-  stat_summary(fun = mean, geom = "point", shape = 23, size = 3, fill = "white") +
-  labs(title = "Detección de Outliers en Edad Paterna",
-       subtitle = "Los puntos rojos representan valores atípicos ",
-       y = "Edad del Padre") +
-  theme_minimal()
-```
-
-vamos a pasar a conocer algo más los síntomas
-
-```{r}
-library(ggplot2)
 library(tidyr)
-library(dplyr)
 
-# 1. Creamos el dataset para el gráfico de forma automática
-datos_barras <- train %>%
-  # Seleccionamos Case.Type y todas las columnas numéricas que NO sean edades
-  select(Case.Type, where(is.numeric)) %>%
-  select(-contains("Age")) %>% 
-  # Pasamos a formato largo para el gráfico
-  pivot_longer(cols = -Case.Type, names_to = "Sintoma", values_to = "Presencia") %>%
-  # Calculamos el porcentaje
-  group_by(Case.Type, Sintoma) %>%
-  summarise(Porcentaje = mean(Presencia, na.rm = TRUE) * 100, .groups = 'drop')
+# Pivotamos las edades para graficarlas juntas
+edades_long <- train %>%
+  select(`Case Type`, `Age of Mother`, `Age of Father`, `Age at First Diagnosis`) %>%
+  pivot_longer(cols = starts_with("Age"), names_to = "Variable", values_to = "Valor")
 
-# 2. Gráfico "Normal" y limpio
-ggplot(datos_barras, aes(x = reorder(Sintoma, Porcentaje), y = Porcentaje, fill = Case.Type)) +
-  geom_bar(stat = "identity", position = "dodge", color = "white") +
-  scale_fill_manual(values = c("Sporadic" = "#3366CC", "Familiar" = "#FF9900")) +
-  coord_flip() + # Lo ponemos de lado para que los nombres largos no se pisen
-  labs(title = "Prevalencia de Síntomas por Origen de la NF1",
-       x = "Hallazgo Clínico",
-       y = "Pacientes con el síntoma (%)",
-       fill = "Origen") +
+ggplot(edades_long, aes(x = `Case Type`, y = Valor, fill = `Case Type`)) +
+  geom_boxplot(outlier.color = "red", alpha = 0.7) +
+  facet_wrap(~Variable, scales = "free_y") +
+  theme_bw() +
+  labs(title = "Distribución de Edades según Tipo de Caso",
+       y = "Años", x = "") +
+  scale_fill_manual(values = c("#3498db", "#e67e22"))
+
+```
+En todas las variables observamis que las medianas son muy similares entre los casos esporádicos y los familiares, siendo entorno a los 10 años la edad de diágnostico y las edades de los progenitores entoro a 25-30 años. Comprobamos que en los casos esporádicos tenemos valores atípicos que podrían hacernos pensar que las mutaciones podrían tener una relacion con una edad mayor en los padres o una mayor dificultad a la hora de la deteccion de la enfermedad.
+
+proseguimos con una matriz de correlación
+```{r}
+library(ggcorrplot)
+
+# Seleccionamos variables numéricas (síntomas clínicos)
+# Excluimos ID y las columnas de respuesta para ver solo síntomas
+df_corr <- train %>% 
+  select(where(is.numeric)) %>% 
+  select(-any_of(c("ID", "Familial", "Sporadic")))
+
+corr_matrix <- cor(df_corr, use = "complete.obs")
+
+ggcorrplot(corr_matrix, hc.order = TRUE, type = "lower",
+           lab = FALSE, colors = c("#6D9EC1", "white", "#E46726"),
+           title = "Matriz de Correlación de Síntomas Clínicos",
+           outline.col = "white")
+
+```
+vemos que no tenemos ninguna correlación fuerte , podemos visualizar que la variable tumor case tiene relacion con los dos tipos de neurofibromatósis y con la edad del primer diagnóstico
+ 
+vamos a visualizar como de frecuentes son algunos síntomas según el tipo de neurofibromatosis de tipo 1
+```{r}
+
+ggplot(train, aes(x = `Case Type`, fill = factor(`Axillary Freckles`))) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  labs(title = "Prevalencia de Axillary Freckles  por Grupo",
+       x = "Grupo", y = "Porcentaje", fill = "Presencia (0/1)") +
+  theme_minimal()
+
+```
+
+
+comprobamos que en ambos casos tener axillary freckles es un síntoma que aparece en más del 50% de los pacientes
+```{r}
+
+ggplot(train, aes(x = `Case Type`, fill = factor(`Optic Glioma`))) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  labs(title = "Prevalencia de Optic glioma  por Grupo",
+       x = "Grupo", y = "Porcentaje", fill = "Presencia (0/1)") +
+  theme_minimal()
+```
+observamos que el optic glioma no es un síntoma muy común y que en ambos grupos tiene un porcentaje menor del 25% y en los casos espóradicos no llega casi ni al 10%
+
+```{r}
+ggplot(train, aes(x = `Case Type`, fill = factor(`Lisch Nodules`))) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  labs(title = "Prevalencia de Lisch Nodules  por Grupo",
+       x = "Grupo", y = "Porcentaje", fill = "Presencia (0/1)") +
   theme_minimal()
 ```
 
-observamos que el síntoma mas común es café au lait, destaca optic
-glioma como síntoma de caso familiar, por lo que puede ser un sintoma
-altamente ligado al componente hereditario. Otros sintomas como lisch
-nodules, other symptoms, dermal neurofibromins también tienen un
-porcentaje mayor del grupo familiar. Sin embargo en café au lait,
-Axillary C, inguinial café au lait tienen más casos esporádicos
+En este caso la aparición del síntoma nisch nodel es más frecuente en los casos esporádicos
+
+```{r}
+# Lista de síntomas restantes basados en tu matriz de correlación
+sintomas_restantes <- c("Scoliosis", "Skeletal Dysplasia", "Learning Disability", "Hypertension", "Hamartoma")
+
+# Generar gráficos en conjunto
+library(ggplot2)
+
+for (sintoma in sintomas_restantes) {
+  p <- ggplot(train, aes(x = `Case Type`, fill = factor(.data[[sintoma]]))) +
+    geom_bar(position = "fill", color = "white", width = 0.7) +
+    scale_y_continuous(labels = scales::percent) +
+    scale_fill_manual(values = c("0" = "#D5D5D5", "1" = "#7F8C8D"), 
+                      labels = c("Ausente", "Presente")) +
+    labs(title = paste("Prevalencia de", sintoma, "por Grupo"),
+         x = "Tipo de Caso", y = "Porcentaje", fill = "Estado") +
+    theme_minimal() +
+    theme(legend.position = "bottom")
+  
+  print(p)
+}
+```
+En estos últimos síntomas comprobamos que son muy poco frecuentes 
+
+
 
 # Técnicas de reducción de la dimensión
 
