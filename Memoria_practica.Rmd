@@ -38,7 +38,7 @@ genéticos y los esporádicos
 Según la descripción oficial de los datos, las variables que conforman
 el conjunto de datos son:
 
--   With Tumors: binario (variable objetivo)
+-   With Tumors: binario
 -   Healthy: binario
 -   Age of Mother: entero
 -   Age of Father: entero
