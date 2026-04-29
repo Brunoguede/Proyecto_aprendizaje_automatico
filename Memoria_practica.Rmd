@@ -379,6 +379,16 @@ varianza, es decir, una información aceptable necesitamos considerar los
 dimensionalidad si solo nos quedásemos con las dos componentes
 principaales la pérdida de información sería grande.
 
+guardamos el nuevo conjunto para poderlo usar en modelos posteriores
+```{r}
+# Proyectar el set de entrenamiento a las nuevas coordenadas
+train_pca <- as.data.frame(pca_auto$x)
+
+# Añadir de nuevo la variable objetivo para poder entrenar después
+train_pca$CaseType <- train$`Case Type`
+```
+
+
 # Análisis no supervisado
 
 *matriz de semejanza*
