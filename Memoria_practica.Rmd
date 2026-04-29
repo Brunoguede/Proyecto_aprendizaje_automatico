@@ -420,8 +420,10 @@ Simetría: $\delta(x, y) = \delta(y, x)$ además cumple con la desigualdad
 triangular lo que la define como una distancia(métrica)
 $\delta(x, y) \leq \delta(x, z) + \delta(y, z)$
 
-*resultados clustering tanto con métodos jerárquicos como no
-jerárquicos* cluster no jerárquico k medias
+**resultados clustering tanto con métodos jerárquicos como no
+jerárquicos**
+
+*cluster no jerárquico k medias*
 
 ```{r}
 set.seed(123) # Para que los resultados sean siempre los mismos
@@ -440,10 +442,6 @@ moderada, que corresponde con la complejidad de detección de la
 neurofibromatosis tipo 1.
 
 ```{r}
-k2
-```
-
-```{r}
 fviz_cluster(k2, data = datos_escalados)
 
 
@@ -454,7 +452,7 @@ distintos, El cluster 2 agrupa perfiles muy similares entre ellos sin
 embargo el cluster 1 incluye los casos con mayor variabilidad y presenta
 valores muy extremos.
 
-cluster jerárquico
+*cluster jerárquico*
 
 ```{r}
 library(cluster)
@@ -480,8 +478,10 @@ hc_ward <- hclust(d, method = "ward.D2")
 # Dibujamos el dendrograma
 plot(hc_ward, cex = 0.6, main = "Dendrograma de Pacientes NF1 (Método Ward)")
 # Si el método del codo o la silueta sugieren 2 grupos:
-rect.hclust(hc_ward, k = 2, border = "pink")
+rect.hclust(hc_ward, k = 2, border = "green")
 ```
+En este dendrograma podemos observar claramente la división de dos clústeres el mayoritario situado a la izquierda que tiene perfiles clínicos más similares y otro de un tamaño más reducido a la derecha que contiene perfiles clinicos más diversos.
+
 
 ```{r}
 library(factoextra)
@@ -504,128 +504,8 @@ plot(hc_ward, cex = 0.6, main = "Dendrograma NF1: Corte Óptimo (k=2)")
 rect.hclust(hc_ward, k = 2, border = c("#00AFBB", "#FC4E07"))
 
 # Tabla de validación final
-table(Cluster_Silueta = sub_grp, Tipo_Real = train$Case.Type)
+table(Cluster_Silueta = sub_grp, Tipo_Real = train$`Case Type`)
 ```
+Los resultados obtenidos son en el cluster uno 76 casos de tipo esporádico y 63 de familiar mientras que en el cluster dos obtenemos 17 de tipo esporádico y 22 de tipo familiar. Esto nos lleva a sacar la conclusión de que la sintomología es muy similar en los dos tipos
 
 # Análisis supervisado
-```{r}
-library(tidyverse)
-library(caret)
-library(randomForest)
-library(rpart)
-
-#cargamos nuestras funciones
-source("modelos.R") 
-
-# Fijamos semilla para que los resultados sean replicables
-set.seed(123)
-```
-
-
-```{r}
-# Selección de variables numéricas y objetivo
-X_train <- train %>% select(where(is.numeric))
-X_test  <- test  %>% select(where(is.numeric))
-
-y_train <- train$Case.Type
-y_test  <- test$Case.Type
-
-# Estandarización (Basada en el conjunto de entrenamiento)
-params_scale <- preProcess(X_train, method = c("center", "scale"))
-X_train_sc   <- predict(params_scale, X_train)
-X_test_sc    <- predict(params_scale, X_test)
-```
-
-búsqueda de hiperparámetros
-```{r}
-# 2. DEFINICIÓN DE LA FUNCIÓN DE VALIDACIÓN CRUZADA (Para el Grid Search)
-# ------------------------------------------------------------------------------
-cv_generic <- function(model_func, X, y, param = NULL, k_folds = 5) {
-  set.seed(123)
-  # Creamos los pliegues (folds)
-  folds <- sample(1:k_folds, nrow(X), replace = TRUE)
-  acc_folds <- c()
-  
-  for (f in 1:k_folds) {
-    # División Train/Validation interna
-    X_tr <- X[folds != f, ]; y_tr <- y[folds != f]
-    X_va <- X[folds == f, ]; y_va <- y[folds == f]
-    
-    # Ejecución del modelo con o sin parámetro
-    if (is.null(param)) {
-      pred <- model_func(X_tr, y_tr, X_va)
-    } else {
-      pred <- model_func(X_tr, y_tr, X_va, param)
-    }
-    acc_folds <- c(acc_folds, mean(pred == y_va))
-  }
-  return(mean(acc_folds))
-}
-
-
-```
-```{r}
-# 3. GRID SEARCH PARA k-NN (Optimización de Vecinos)
-# ------------------------------------------------------------------------------
-# Definimos los valores que queremos probar
-k_grid <- seq(1, 15, by = 2) 
-
-# Ejecutamos la búsqueda del mejor Accuracy
-cat("Iniciando Grid Search para k-NN...\n")
-res_cv_knn <- sapply(k_grid, function(k_val) {
-  cv_generic(knn_custom, X_train_sc, y_train, param = k_val, k_folds = 5)
-})
-
-# Guardamos el mejor k
-best_k <- k_grid[which.max(res_cv_knn)]
-cat("Mejor k encontrado:", best_k, "\n")
-
-# Gráfico para la memoria
-plot(k_grid, res_cv_knn, type = "b", pch = 19, col = "blue",
-     main = "Optimización de Hiperparámetros (k-NN)",
-     xlab = "Número de Vecinos (k)", ylab = "Accuracy (CV)")
-abline(v = best_k, col = "red", lty = 2)
-```
-
-modelos
-```{r}
-pred_knn <- knn_custom(X_train_sc, y_train, X_test_sc, k = best_k)
-
-# B. LDA (Manual)
-pred_lda <- lda_custom(X_train_sc, y_train, X_test_sc)
-
-# C. Naïve Bayes 
-pred_nb <- naive_bayes_custom(X_train_sc, y_train, X_test_sc)
-
-# D. AdaBoost 
-pred_boost <- adaboost_custom(X_train_sc, y_train, X_test_sc, n_iter = 50)
-
-# E. Random Forest 
-rf_fit <- train(Case.Type ~ ., data = train, method = "rf",
-                trControl = trainControl(method = "cv", number = 5),
-                tuneGrid = expand.grid(mtry = c(2, 4, 6)))
-pred_rf <- predict(rf_fit, test)
-```
-
-
-
-
-# Comparación y selección de modelos
-Tabla comparativa de modelos 
-```{r}
-resultados_finales <- data.frame(
-  Modelo = c("k-NN", "LDA", "Naïve Bayes", "AdaBoost", "Random Forest"),
-  Accuracy = c(
-    mean(pred_knn == y_test),
-    mean(pred_lda == y_test),
-    mean(pred_nb == y_test),
-    mean(pred_boost == y_test),
-    mean(pred_rf == y_test)
-  )
-)
-
-print(resultados_finales)
-
-
-
-# Conclusiones
