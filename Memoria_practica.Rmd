@@ -1,7 +1,7 @@
 ---
 title: "Neurofibromatosis type 1"
-author: "Isaac y Carmen"
-date: "`r Sys.Date()`"
+author: "Bruno Guedeja-Marrón Ramos, Aitana García Herranz, Pablo Cancela Roel"
+date: "29-04-2026"
 output:
   html_document:
     theme: flatly
