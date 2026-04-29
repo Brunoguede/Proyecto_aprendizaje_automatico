@@ -1,37 +1,52 @@
-# =============================================================
-# NAIVE BAYES
-# =============================================================
-# Función para ENTRENAR el modelo Naïve Bayes
-# Recibe:
-#   - X: dataframe con las variables predictoras (los síntomas)
-#   - y: vector con la variable objetivo (0 o 1)
-# Devuelve una lista con todo lo aprendido del dataset
-# =============================================================
+
+# ARCHIVO DE FUNCIONES - APRENDIZAJE AUTOMÁTICO I
+# En este archivo implementamos desde cero los siguientes modelos:
+#   - Naïve Bayes
+#   - k-NN (k vecinos más cercanos)
+#   - LDA (Análisis Discriminante Lineal)
+#   - Bagging
+#   - AdaBoost
+#   - Grid Search con validación cruzada para k-NN
+
+
+# 1. NAIVE BAYES
+# La idea es calcular la probabilidad de que un paciente sea
+# familiar o esporádico dado sus síntomas, usando el teorema
+# de Bayes.
+# El entrenamiento consiste en aprender las probabilidades de
+# cada síntoma para cada clase a partir de los datos de entrenamiento.
+# Para variables binarias (0/1) guardamos la proporción de 1s.
+# Para variables continuas (edades) guardamos media y desviación típica.
+
 
 entrenar_naive_bayes <- function(X, y) {
   
-  # Clases posibles (en nuestro caso 0 y 1)
+  # sacamos las clases que hay, en nuestro caso 0 y 1
   clases <- unique(y)
   
-  # Probabilidad a priori de cada clase
+  # calculamos cuántos casos hay de cada clase respecto al total
   prob_clases <- table(y) / length(y)
   
-  # Lista donde guardaremos los parámetros de cada variable para cada clase
+  # aquí guardaremos los parámetros aprendidos de cada variable
   parametros <- list()
   
+  # recorremos cada variable (columna) del dataset
   for (col in colnames(X)) {
     
     parametros[[col]] <- list()
     
+    # para cada clase calculamos sus parámetros por separado
     for (clase in clases) {
       
+      # cogemos los valores de esta variable solo para esta clase
       valores <- X[y == clase, col]
-      valores <- valores[!is.na(valores)]
+      valores <- valores[!is.na(valores)]  # quitamos los NA
       
+      # si la variable es binaria (solo tiene 0s y 1s)
       if (length(unique(valores)) <= 2) {
         
-        # Suavizado de Laplace: sumamos 1 al numerador y 2 al denominador
-        # Evita probabilidades de 0 o 1 exactos
+        # usamos suavizado de Laplace: sumamos 1 arriba y 2 abajo
+        # esto evita que alguna probabilidad sea exactamente 0
         n1 <- sum(valores == 1) + 1
         n0 <- sum(valores == 0) + 1
         prob <- n1 / (n1 + n0)
@@ -39,52 +54,62 @@ entrenar_naive_bayes <- function(X, y) {
         
       } else {
         
+        # si es continua (como las edades) guardamos media y desv típica
+        # con estos dos valores podemos calcular la densidad normal después
         media <- mean(valores, na.rm = TRUE)
-        desv  <- max(sd(valores, na.rm = TRUE), 0.1)  # mínimo 0.1 para evitar desv=0
+        desv  <- max(sd(valores, na.rm = TRUE), 0.1)  # mínimo 0.1 para que no sea 0
         parametros[[col]][[as.character(clase)]] <- list(tipo = "continua", media = media, desv = desv)
         
       }
     }
   }
   
+  # devolvemos todo lo que hemos aprendido
   return(list(prob_clases = prob_clases, parametros = parametros, clases = clases))
 }
 
-# =============================================================
-# Función para PREDECIR con Naïve Bayes
-# Recibe:
-#   - modelo: lo que devolvió entrenar_naive_bayes()
-#   - X_nuevo: dataframe con los pacientes a predecir
-# Devuelve un vector con la predicción (0 o 1) para cada paciente
-# =============================================================
+
+# Esta función usa lo que aprendió entrenar_naive_bayes para predecir
+# nuevos pacientes. Para cada paciente calcula un score por clase
+# y se queda con la clase de mayor score.
 
 predecir_naive_bayes <- function(modelo, X_nuevo) {
   
   predicciones <- c()
   
+  # recorremos cada paciente que queremos predecir
   for (i in 1:nrow(X_nuevo)) {
     
     scores <- c()
     
     for (clase in modelo$clases) {
       
+      # empezamos el score con la probabilidad a priori de la clase
+      # usamos log para evitar que los números se hagan demasiado pequeños
+      # al multiplicar muchas probabilidades entre sí
       score <- log(modelo$prob_clases[as.character(clase)])
       
+      # vamos sumando la contribución de cada síntoma
       for (col in names(modelo$parametros)) {
         
         valor <- X_nuevo[i, col]
         
+        # si el valor falta lo ignoramos directamente
         if (is.na(valor)) next
         
         params <- modelo$parametros[[col]][[as.character(clase)]]
         
         if (params$tipo == "binaria") {
           
+          # si el síntoma está presente usamos su prob, si no usamos 1-prob
+          # el +0.001 es para evitar log(0) en caso de prob=0 o prob=1
           p <- ifelse(valor == 1, params$prob + 0.001, 1 - params$prob + 0.001)
           score <- score + log(p)
           
         } else {
           
+          # para variables continuas usamos la densidad de la normal
+          # dnorm nos da qué tan probable es ese valor dado media y desv
           p <- dnorm(valor, mean = params$media, sd = params$desv + 0.001)
           score <- score + log(p + 0.001)
           
@@ -94,133 +119,114 @@ predecir_naive_bayes <- function(modelo, X_nuevo) {
       scores[as.character(clase)] <- score
     }
     
+    # nos quedamos con la clase que tiene mayor puntuación
     predicciones[i] <- as.numeric(names(which.max(scores)))
   }
   
   return(predicciones)
 }
 
-# =============================================================
-# K-NN (K VECINOS MÁS CERCANOS)
-# =============================================================
-# Función para PREDECIR con k-NN
-# k-NN no tiene fase de entrenamiento como tal - simplemente
-# memoriza todos los datos y compara cuando llega un caso nuevo
-# Recibe:
-#   - X_train: dataframe con los pacientes de entrenamiento
-#   - y_train: vector con las clases de entrenamiento
-#   - X_test: dataframe con los pacientes a predecir
-#   - k: número de vecinos a considerar
-# Devuelve un vector con la predicción (0 o 1) para cada paciente
-# =============================================================
+
+# 2. K-NN (K VECINOS MÁS CERCANOS)
+# k-NN no aprende ninguna fórmula, simplemente memoriza todos
+# los pacientes de entrenamiento. Cuando llega uno nuevo,
+# busca los k más parecidos y vota la clase más frecuente.
+# La similitud se mide con distancia euclídea: cuanto más
+# parecidos los síntomas, menor es la distancia.
+# No hay función de entrenamiento porque no hay nada que aprender,
+# solo se usan los datos directamente en la predicción.
+
 
 predecir_knn <- function(X_train, y_train, X_test, k = 3) {
   
-  # Vector donde guardaremos las predicciones
   predicciones <- c()
   
-  # Recorremos cada paciente nuevo que queremos predecir
+  # para cada paciente nuevo calculamos su distancia a todos los del train
   for (i in 1:nrow(X_test)) {
     
-    # Calculamos la distancia entre este paciente y TODOS los del train
-    # Usamos distancia euclídea: raíz cuadrada de la suma de diferencias al cuadrado
     distancias <- c()
     
     for (j in 1:nrow(X_train)) {
       
-      # Cogemos los valores de ambos pacientes
       paciente_nuevo <- as.numeric(X_test[i, ])
       paciente_train <- as.numeric(X_train[j, ])
       
-      # Ignoramos las posiciones donde alguno tiene valor missing
+      # ignoramos las variables donde alguno de los dos tiene NA
       posiciones_validas <- !is.na(paciente_nuevo) & !is.na(paciente_train)
       
-      # Calculamos distancia euclídea solo con posiciones válidas
+      # distancia euclídea: raíz de la suma de diferencias al cuadrado
       diff <- paciente_nuevo[posiciones_validas] - paciente_train[posiciones_validas]
       distancias[j] <- sqrt(sum(diff^2))
     }
     
-    # Ordenamos las distancias de menor a mayor y cogemos los k primeros índices
+    # ordenamos por distancia y cogemos los k más cercanos
     indices_vecinos <- order(distancias)[1:k]
     
-    # Miramos las clases de esos k vecinos
+    # miramos qué clase tienen esos k vecinos
     clases_vecinos <- y_train[indices_vecinos]
     
-    # La predicción es la clase más frecuente entre los k vecinos
-    # table() cuenta cuántos hay de cada clase
-    # which.max() devuelve el índice del máximo
+    # la predicción es la clase más repetida entre los vecinos
     predicciones[i] <- as.integer(names(which.max(table(clases_vecinos))))
   }
   
   return(predicciones)
 }
 
-# =============================================================
-# LDA (ANÁLISIS DISCRIMINANTE LINEAL)
-# =============================================================
-# LDA busca la combinación lineal de variables que mejor separa
-# las clases. Asume que cada clase sigue una distribución normal
-# con la misma matriz de covarianza.
-# Recibe:
-#   - X: dataframe con las variables predictoras
-#   - y: vector con la variable objetivo (0 o 1)
-# Devuelve una lista con los parámetros aprendidos
-# =============================================================
+
+# 3. LDA (ANÁLISIS DISCRIMINANTE LINEAL)
+# LDA busca la dirección que mejor separa las dos clases.
+# Durante el entrenamiento calcula el "paciente típico" de cada
+# clase (su media) y cómo de dispersos están los pacientes
+# alrededor de ese típico (matriz de covarianza within-class SW).
+# Para predecir, mira a cuál de los dos típicos se parece más
+# el paciente nuevo, ajustando por la dispersión de cada clase.
+# Asume que los datos siguen una distribución normal.
+
 
 entrenar_lda <- function(X, y) {
   
-  # Convertimos X a matriz numérica para poder operar matemáticamente
+  # necesitamos trabajar con matrices para hacer álgebra lineal
   X <- as.matrix(X)
   
-  # Clases posibles
   clases <- unique(y)
+  n <- nrow(X)  # número de pacientes
+  p <- ncol(X)  # número de variables
   
-  # Número total de observaciones
-  n <- nrow(X)
-  
-  # Número de variables
-  p <- ncol(X)
-  
-  # Calculamos la media global de todas las variables
+  # esta variable no se usa en la predicción pero es útil tenerla
   media_global <- colMeans(X, na.rm = TRUE)
   
-  # Para cada clase calculamos su media
+  # calculamos la media de cada clase (el "paciente típico" de cada grupo)
   medias <- list()
   for (clase in clases) {
-    # Cogemos solo las filas de esta clase
     X_clase <- X[y == clase, ]
     medias[[as.character(clase)]] <- colMeans(X_clase, na.rm = TRUE)
   }
   
-  # Calculamos la matriz de covarianza dentro de los grupos (Within-class)
-  # Es la varianza conjunta de todas las clases
-  # Inicializamos con ceros
+  # calculamos SW: la matriz de covarianza dentro de los grupos
+  # mide cómo de dispersos están los pacientes alrededor de su media de clase
   SW <- matrix(0, nrow = p, ncol = p)
   
   for (clase in clases) {
     X_clase <- X[y == clase, ]
-    # Centramos los datos restando la media de la clase
+    # centramos restando la media de la clase
     X_centrada <- sweep(X_clase, 2, medias[[as.character(clase)]], "-")
-    # Reemplazamos NAs por 0 para no perder filas enteras
-    X_centrada[is.na(X_centrada)] <- 0
-    # Sumamos la contribución de esta clase a SW
+    X_centrada[is.na(X_centrada)] <- 0  # los NA los tratamos como 0
     SW <- SW + t(X_centrada) %*% X_centrada
   }
   
-  # Dividimos por n-número de clases para obtener la covarianza media
+  # dividimos para obtener la covarianza media entre clases
   SW <- SW / (n - length(clases))
   
-  # Añadimos una pequeña regularización para evitar matriz singular
-  # Una matriz singular no se puede invertir, lo que daría error
+  # añadimos un valor pequeño en la diagonal para que SW sea invertible
+  # sin esto puede dar error si hay variables muy correlacionadas
   SW <- SW + diag(1e-4, p)
   
-  # Calculamos la inversa de SW
+  # invertimos SW, necesaria para calcular la puntuación discriminante
   SW_inv <- solve(SW)
   
-  # Probabilidades a priori de cada clase
+  # probabilidad a priori de cada clase
   prob_clases <- table(y) / length(y)
   
-  # Devolvemos todo lo aprendido
   return(list(
     medias = medias,
     SW_inv = SW_inv,
@@ -229,20 +235,12 @@ entrenar_lda <- function(X, y) {
   ))
 }
 
-# =============================================================
-# Función para PREDECIR con LDA
-# Recibe:
-#   - modelo: lo que devolvió entrenar_lda()
-#   - X_nuevo: dataframe con los pacientes a predecir
-# Devuelve un vector con la predicción (0 o 1) para cada paciente
-# =============================================================
 
 predecir_lda <- function(modelo, X_nuevo) {
   
-  # Convertimos a matriz
   X_nuevo <- as.matrix(X_nuevo)
   
-  # Reemplazamos NAs por la media de cada columna
+  # los NA los sustituimos por la media de cada columna
   for (col in 1:ncol(X_nuevo)) {
     na_pos <- is.na(X_nuevo[, col])
     if (any(na_pos)) {
@@ -258,190 +256,155 @@ predecir_lda <- function(modelo, X_nuevo) {
     
     for (clase in modelo$clases) {
       
-      # Media de esta clase
       mu <- modelo$medias[[as.character(clase)]]
       
-      # Diferencia entre el paciente y la media de la clase
+      # diferencia entre el paciente y el centro de esta clase
       diff <- X_nuevo[i, ] - mu
       
-      # Puntuación discriminante de Fisher
-      # Cuanto menor es esta distancia, más probable es esta clase
+      # puntuación discriminante de Fisher
+      # mide qué tan cerca está el paciente del centro de esta clase
+      # ajustando por la dispersión (SW_inv)
+      # sumamos log de la prob a priori igual que en Naïve Bayes
       score <- -0.5 * t(diff) %*% modelo$SW_inv %*% diff +
         log(modelo$prob_clases[as.character(clase)])
       
       scores[as.character(clase)] <- score
     }
     
-    # Predecimos la clase con mayor puntuación
+    # la clase con mayor puntuación es la predicción
     predicciones[i] <- as.integer(names(which.max(scores)))
   }
   
   return(predicciones)
 }
 
-# =============================================================
-# BAGGING
-# =============================================================
-# Bagging entrena múltiples árboles de decisión, cada uno sobre
-# una muestra aleatoria con reemplazamiento del dataset.
-# La predicción final es la votación mayoritaria de todos los árboles.
-# Necesitamos la librería rpart para los árboles de decisión.
-# Recibe:
-#   - X: dataframe con las variables predictoras
-#   - y: vector con la variable objetivo (0 o 1)
-#   - n_arboles: número de árboles a entrenar (por defecto 100)
-# Devuelve una lista con todos los árboles entrenados
-# =============================================================
+
+# 4. BAGGING
+# Bagging soluciona el overfitting de los árboles de decisión
+# entrenando muchos árboles distintos y haciéndoles votar.
+# Para conseguir árboles distintos usamos bootstrap: para cada
+# árbol creamos una muestra aleatoria CON reemplazamiento de los
+# datos de entrenamiento. Así cada árbol ve datos ligeramente
+# distintos y comete errores distintos. Al votar juntos, los
+# errores individuales se cancelan entre sí.
+
 
 entrenar_bagging <- function(X, y, n_arboles = 100) {
   
-  # Cargamos rpart para poder entrenar árboles de decisión
-  library(rpart)
+  library(rpart)  # necesitamos rpart para los árboles de decisión
   
-  # Lista donde guardaremos todos los árboles entrenados
   arboles <- list()
-  
-  # Número total de pacientes en el train
   n <- nrow(X)
   
-  # Entrenamos n_arboles árboles distintos
   for (i in 1:n_arboles) {
     
-    # Creamos una muestra aleatoria CON reemplazamiento
-    # sample() con replace=TRUE permite que un paciente salga varias veces
+    # muestra bootstrap: cogemos n pacientes al azar CON repetición
+    # algunos pacientes saldrán varias veces y otros no saldrán
     indices_muestra <- sample(1:n, size = n, replace = TRUE)
     
-    # Cogemos los pacientes de esta muestra
     X_muestra <- X[indices_muestra, ]
     y_muestra <- y[indices_muestra]
     
-    # Juntamos X e y en un dataframe para rpart
+    # rpart necesita que X e y estén en el mismo dataframe
     datos_muestra <- X_muestra
     datos_muestra$target <- as.factor(y_muestra)
     
-    # Entrenamos un árbol de decisión con esta muestra
-    # method="class" indica que es un problema de clasificación
+    # entrenamos el árbol con esta muestra
+    # method="class" porque es clasificación, no regresión
     arbol <- rpart(target ~ ., data = datos_muestra, method = "class")
     
-    # Guardamos el árbol en la lista
     arboles[[i]] <- arbol
   }
   
   return(list(arboles = arboles))
 }
 
-# =============================================================
-# Función para PREDECIR con Bagging
-# Recibe:
-#   - modelo: lo que devolvió entrenar_bagging()
-#   - X_nuevo: dataframe con los pacientes a predecir
-# Devuelve un vector con la predicción (0 o 1) para cada paciente
-# =============================================================
 
 predecir_bagging <- function(modelo, X_nuevo) {
   
   library(rpart)
   
-  # Número de pacientes a predecir
   n <- nrow(X_nuevo)
-  
-  # Número de árboles
   n_arboles <- length(modelo$arboles)
   
-  # Matriz donde cada fila es un paciente y cada columna es un árbol
-  # Guardaremos la predicción de cada árbol para cada paciente
+  # matriz de votos: fila = paciente, columna = árbol
   votos <- matrix(0, nrow = n, ncol = n_arboles)
   
-  # Recorremos cada árbol
   for (i in 1:n_arboles) {
     
-    # Predicción de este árbol para todos los pacientes
-    # type="class" devuelve la clase directamente (0 o 1)
+    # cada árbol hace su predicción
     pred <- predict(modelo$arboles[[i]], newdata = X_nuevo, type = "class")
-    
-    # Guardamos las predicciones como números
     votos[, i] <- as.integer(as.character(pred))
   }
   
-  # Para cada paciente calculamos la votación mayoritaria
-  # rowMeans nos da la proporción de árboles que votaron 1
-  # Si más del 50% votaron 1, predecimos 1, si no predecimos 0
+  # si más del 50% de los árboles votan 1, predecimos 1
+  # rowMeans calcula la proporción de votos a 1 por paciente
   predicciones <- ifelse(rowMeans(votos) >= 0.5, 1, 0)
   
   return(predicciones)
 }
 
-# =============================================================
-# ADABOOST
-# =============================================================
-# AdaBoost entrena árboles de decisión secuencialmente.
-# Cada árbol se centra más en los casos que el anterior falló.
-# La predicción final es una votación ponderada — los árboles
-# que aciertan más tienen más peso en la decisión final.
-# Recibe:
-#   - X: dataframe con las variables predictoras
-#   - y: vector con la variable objetivo (0 o 1)
-#   - n_arboles: número de árboles a entrenar (por defecto 50)
-# Devuelve una lista con los árboles y sus pesos
-# =============================================================
+
+# 5. ADABOOST
+# AdaBoost también entrena múltiples árboles pero de forma
+# secuencial, no independiente como Bagging.
+#
+# La clave está en los pesos: al principio todos los pacientes
+# tienen el mismo peso. Después de cada árbol, los pacientes
+# que se clasificaron mal ganan más peso para que el siguiente
+# árbol se centre más en ellos.
+# La predicción final es una votación ponderada: los árboles
+# que acertaron más tienen más voz en la decisión final.
+
 
 entrenar_adaboost <- function(X, y, n_arboles = 50) {
   
   library(rpart)
   
-  # AdaBoost trabaja con clases -1 y +1 en vez de 0 y 1
-  # Convertimos: 0 → -1, 1 → +1
+  # AdaBoost necesita clases -1 y +1 en vez de 0 y 1
+  # la fórmula de actualización de pesos lo requiere así
   y_ab <- ifelse(y == 1, 1, -1)
   
-  # Número de pacientes
   n <- nrow(X)
   
-  # Inicializamos los pesos — todos igual de importantes al principio
-  # Cada paciente tiene peso 1/n
+  # todos los pacientes empiezan con el mismo peso: 1/n
   pesos <- rep(1/n, n)
   
-  # Listas donde guardaremos los árboles y sus pesos
   arboles <- list()
-  alfas   <- c()
+  alfas   <- c()  # pesos de cada árbol en la votación final
   
   for (i in 1:n_arboles) {
     
-    # Juntamos X, y y los pesos en un dataframe para rpart
     datos <- X
     datos$target <- as.factor(y_ab)
     
-    # Entrenamos un árbol muy simple (maxdepth=1 significa solo una pregunta)
-    # Los pesos le dicen al árbol en qué pacientes fijarse más
-    # Un árbol de profundidad 1 se llama "stump" o tocón
+    # usamos árboles de profundidad 1 (solo hacen una pregunta)
+    # se llaman "stumps" y son los clasificadores débiles típicos de AdaBoost
+    # los pesos le dicen al árbol en qué pacientes fijarse más
     arbol <- rpart(target ~ ., data = datos, method = "class",
                    weights = pesos,
                    control = rpart.control(maxdepth = 1))
     
-    # Predicción de este árbol para todos los pacientes
     pred <- as.integer(as.character(predict(arbol, newdata = X, type = "class")))
     
-    # Calculamos el error ponderado
-    # Es la suma de pesos de los pacientes que falló
+    # error ponderado: suma de pesos de los pacientes mal clasificados
     error <- sum(pesos[pred != y_ab])
     
-    # Si el error es 0 o mayor que 0.5 paramos
-    # Error=0 significa predicción perfecta
-    # Error>0.5 significa que el árbol es peor que el azar
+    # paramos si el árbol es perfecto o peor que el azar
     if (error <= 0 || error >= 0.5) break
     
-    # Calculamos el peso de este árbol (alfa)
-    # Cuanto menor es el error, mayor es alfa (más peso en la votación)
+    # alfa: el peso de este árbol en la votación final
+    # cuanto menor es el error, mayor es alfa
     alfa <- 0.5 * log((1 - error) / error)
     
-    # Actualizamos los pesos de los pacientes
-    # Los que falló → su peso aumenta (multiplicamos por e^alfa)
-    # Los que acertó → su peso disminuye (multiplicamos por e^-alfa)
+    # actualizamos los pesos de los pacientes:
+    # los que falló → peso mayor (e^alfa > 1)
+    # los que acertó → peso menor (e^-alfa < 1)
     pesos <- pesos * exp(-alfa * y_ab * pred)
     
-    # Normalizamos los pesos para que sumen 1
+    # normalizamos para que los pesos sumen 1
     pesos <- pesos / sum(pesos)
     
-    # Guardamos el árbol y su peso
     arboles[[i]] <- arbol
     alfas[i]     <- alfa
   }
@@ -449,109 +412,88 @@ entrenar_adaboost <- function(X, y, n_arboles = 50) {
   return(list(arboles = arboles, alfas = alfas))
 }
 
-# =============================================================
-# Función para PREDECIR con AdaBoost
-# Recibe:
-#   - modelo: lo que devolvió entrenar_adaboost()
-#   - X_nuevo: dataframe con los pacientes a predecir
-# Devuelve un vector con la predicción (0 o 1) para cada paciente
-# =============================================================
 
 predecir_adaboost <- function(modelo, X_nuevo) {
   
   library(rpart)
   
-  # Número de pacientes a predecir
   n <- nrow(X_nuevo)
   
-  # Vector donde acumulamos la votación ponderada
-  # Empieza en 0 para cada paciente
+  # acumulamos la suma ponderada de votos para cada paciente
   votos <- rep(0, n)
   
-  # Recorremos cada árbol
   for (i in 1:length(modelo$arboles)) {
     
-    # Predicción de este árbol (-1 o +1)
+    # predicción de este árbol en escala -1/+1
     pred <- as.integer(as.character(
       predict(modelo$arboles[[i]], newdata = X_nuevo, type = "class")
     ))
     
-    # Sumamos la predicción ponderada por el peso del árbol (alfa)
-    # Un árbol con alfa alto influye más en la decisión final
+    # sumamos ponderando por alfa: los mejores árboles influyen más
     votos <- votos + modelo$alfas[i] * pred
   }
   
-  # Si la suma de votos es positiva predecimos 1 (familiar)
-  # Si es negativa predecimos 0 (esporádico)
+  # suma positiva → más votos a familiar (1)
+  # suma negativa → más votos a esporádico (0)
   predicciones <- ifelse(votos > 0, 1, 0)
   
   return(predicciones)
 }
 
-# =============================================================
-# GRID SEARCH CON VALIDACIÓN CRUZADA
-# =============================================================
-# Busca el mejor hiperparámetro k para k-NN usando validación
-# cruzada de 5 folds. Para cada valor de k divide el train en
-# 5 partes, entrena con 4 y evalúa con 1, rotando 5 veces.
-# El k con mejor accuracy medio es el seleccionado.
-# Recibe:
-#   - X_train: dataframe con las variables predictoras
-#   - y_train: vector con la variable objetivo
-#   - ks: vector de valores de k a probar
-#   - n_folds: número de particiones (por defecto 5)
-# Devuelve una tabla con el accuracy medio de cada k
-# =============================================================
+
+# 6. GRID SEARCH CON VALIDACIÓN CRUZADA PARA K-NN
+# Para elegir el mejor k en k-NN usamos validación cruzada
+# de 5 folds en lugar de evaluarlo solo una vez en test.
+# La validación cruzada divide el train en 5 partes iguales.
+# En cada iteración usa 4 partes para entrenar y 1 para validar,
+# rotando qué parte se usa para validar. El accuracy final de
+# cada k es la media de las 5 evaluaciones, lo que da una
+# estimación más fiable que una sola partición.
+# Grid search simplemente prueba todos los valores de k que
+# le pasamos y se queda con el que da mejor accuracy medio.
+
 
 grid_search_knn <- function(X_train, y_train, ks = c(1,3,5,7,9,11,15), n_folds = 5) {
   
-  # Número total de pacientes en train
   n <- nrow(X_train)
   
-  # Creamos los índices de cada fold aleatoriamente
-  # Dividimos los pacientes en n_folds grupos
+  # asignamos cada paciente a un fold aleatoriamente
   set.seed(42)
   indices_fold <- sample(rep(1:n_folds, length.out = n))
   
-  # Dataframe donde guardaremos los resultados
   resultados <- data.frame(k = ks, accuracy_medio = NA)
   
-  # Probamos cada valor de k
   for (idx in 1:length(ks)) {
     
     k <- ks[idx]
     accuracies <- c()
     
-    # Validación cruzada — rotamos el fold de evaluación
+    # rotamos el fold de validación 5 veces
     for (fold in 1:n_folds) {
       
-      # Los pacientes de este fold son el conjunto de validación
+      # el fold actual es la validación, el resto es entrenamiento
       idx_val   <- which(indices_fold == fold)
-      # El resto son el conjunto de entrenamiento
       idx_train <- which(indices_fold != fold)
       
-      # Partimos los datos
       X_tr  <- X_train[idx_train, ]
       y_tr  <- y_train[idx_train]
       X_val <- X_train[idx_val, ]
       y_val <- y_train[idx_val]
       
-      # Predecimos con este k
       preds <- as.integer(predecir_knn(X_tr, y_tr, X_val, k = k))
       y_val <- as.integer(y_val)
       
-      # Guardamos el accuracy de este fold
       accuracies[fold] <- mean(preds == y_val)
     }
     
-    # Guardamos el accuracy medio de todos los folds para este k
+    # guardamos el accuracy medio de los 5 folds para este k
     resultados$accuracy_medio[idx] <- mean(accuracies)
     cat("k =", k, "-> Accuracy medio CV:", round(mean(accuracies) * 100, 2), "%\n")
   }
   
-  # Mostramos el mejor k
   mejor_k <- resultados$k[which.max(resultados$accuracy_medio)]
   cat("\nMejor k:", mejor_k, "\n")
   
   return(resultados)
 }
+
