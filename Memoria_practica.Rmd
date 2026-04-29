@@ -75,84 +75,107 @@ esporádicos?
 
 # Data understanding
 
-A continuación leemos los datos y vemos el tipo de variables.
-
-```{r lectura, warning=FALSE}
-
-# lectura de datos en csv
-datos_nf1 <- dataset_uci
-
-ntotal <- dim(datos_nf1)[1] 
-ptotal <- dim(datos_nf1)[2] 
-
-
+cargamos los datos
+```{r}
+library(readxl)
+data <- read_excel("dataset-uci.xlsx")
+```
+comprobamos que se han cargado correctamente
+```{r}
+head(data)
 ```
 
+```{r}
+ntotal <- dim(data)[1] 
+ptotal <- dim(data)[2] 
+```
 Comprobamos que tenemos $n=$`r ntotal` observaciones y `r ptotal`
 variables en la base de datos.
 
+vamos a transformar nuestra variable objetivo 
 ```{r}
-datos_nf1$Target <- as.numeric(as.character(datos_nf1[[2]]))
+data$`Case Type` <- as.numeric(as.character(data[[2]]))
+data$`Case Type` <- factor(data$`Case Type`,
+                           levels = c(0, 1),
+                           labels = c("Sporadic", "Familial"))
 ```
 
+vemos cuantos casos tenemos de cada tipo
 ```{r}
-datos_nf1$Target <- factor(datos_nf1$Target, 
-                           levels = c(0, 1), 
-                           labels = c("Sporadic", "Familiar"))
+table(data$`Case Type`)
 ```
-
-```{r}
-table(datos_nf1$Target)
-```
-
-Para poder asegurar una buena capacidad de generalización de los modelos
-dividimos nuestro conjunto de datos en tres train(50%), test(25%) y
-validation(25%)
+Realizamos la división de nuestros datos en 3 muestras: entrenamiento, validación y test.
 
 ```{r particion}
-# mediante una semilla conseguimos que el ejercicio sea reproducible
 set.seed(1)
 
-# calculamos dimensiones
-ntotal <- nrow(datos_nf1)
+ntotal <- nrow(data)
+
 indices <- 1:ntotal
-ntrain <- ntotal * .5
-ntest <- ntotal * .25
-nval <- ntotal - (ntrain+ntest)
-# creamos índices
+
+ntrain <- round(ntotal * 0.6)
+ntest  <- round(ntotal * 0.2)
+nval   <- ntotal - (ntrain + ntest)
+
 indices.train <- sample(indices, ntrain, replace = FALSE)
-indices.test <- sample(indices[-indices.train],ntest,replace=FALSE)
-indices.val <- indices[-c(indices.train,indices.test)]
-#dividimos el conjunto
-train  <- datos_nf1[indices.train, ]
-test   <- datos_nf1[indices.test, ]
-val   <- datos_nf1[indices.val, ]
-colnames(train) <- make.names(colnames(train))
+indices.rest  <- setdiff(indices, indices.train)
 
+indices.test <- sample(indices.rest, ntest, replace = FALSE)
+indices.val  <- setdiff(indices.rest, indices.test)
 
+train <- data[indices.train, ]
+test  <- data[indices.test, ]
+val   <- data[indices.val, ]
 
 ```
+ 
+ 
+ ahora procedemos a la limpieza y tratamiento de datos perdidos
+```{r}
+sum(is.na(train))
+colSums(is.na(train))
+```
+ 
+comprobamos que tenemos 42 valores perdidos y todos corresponden con datos sobre las edades
+
+vamos a hacer una imputación por media ya que omitirlos sería una pérdida importante de la información
 
 ```{r}
-train$Case.Type <- factor(as.numeric(as.character(train[[2]])), 
-                          levels = c(0, 1), 
-                          labels = c("Sporadic", "Familiar"))
+# Imputación de variables numéricas con la media
 
-test$Case.Type <- factor(as.numeric(as.character(test[[2]])), 
-                         levels = c(0, 1), 
-                         labels = c("Sporadic", "Familiar"))
+# calcular medias en train
+mean_mother <- mean(train$`Age of Mother`, na.rm = TRUE)
+mean_father <- mean(train$`Age of Father`, na.rm = TRUE)
+mean_diag   <- mean(train$`Age at First Diagnosis`, na.rm = TRUE)
 
-val$Case.Type <- factor(as.numeric(as.character(val[[2]])), 
-                        levels = c(0, 1), 
-                        labels = c("Sporadic", "Familiar"))
+# imputar en train
+train$`Age of Mother`[is.na(train$`Age of Mother`)] <- mean_mother
+train$`Age of Father`[is.na(train$`Age of Father`)] <- mean_father
+train$`Age at First Diagnosis`[is.na(train$`Age at First Diagnosis`)] <- mean_diag
 
+# imputar en test usando las MISMAS medias
+test$`Age of Mother`[is.na(test$`Age of Mother`)] <- mean_mother
+test$`Age of Father`[is.na(test$`Age of Father`)] <- mean_father
+test$`Age at First Diagnosis`[is.na(test$`Age at First Diagnosis`)] <- mean_diag
 ```
-
-vamos a ver por encima las variables
-
+comprobamos que ya no tenemos valores faltantes
 ```{r}
-str(train)
+sum(is.na(train))
 ```
+efectivamente ya no tenemos valores faltantes
+
+ahora vamos a quitar las columnas predictoras
+```{r}
+cols_a_eliminar <- c("ID", "Familial", "Sporadic", "Case Type")
+
+X_train <- train[, !(names(train) %in% cols_a_eliminar)]
+y_train <- train$`Case Type`
+
+X_test  <- test[, !(names(test) %in% cols_a_eliminar)]
+y_test  <- test$`Case Type`
+```
+
+
 
 # Análisis exploratorio de datos
 
