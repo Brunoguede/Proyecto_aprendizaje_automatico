@@ -509,3 +509,101 @@ table(Cluster_Silueta = sub_grp, Tipo_Real = train$`Case Type`)
 Los resultados obtenidos son en el cluster uno 76 casos de tipo esporádico y 63 de familiar mientras que en el cluster dos obtenemos 17 de tipo esporádico y 22 de tipo familiar. Esto nos lleva a sacar la conclusión de que la sintomología es muy similar en los dos tipos
 
 # Análisis supervisado
+# Análisis supervisado
+
+```{r}
+# Carga de las funciones implementadas manualmente
+source("funciones.r") #
+
+# Definición de variables predictoras
+predictores <- setdiff(names(train), c("Case Type", "ID"))
+
+# Preparación de matrices y vectores numéricos (0 = Sporadic, 1 = Familial)
+X_train <- as.matrix(train[, predictores])
+y_train <- as.numeric(as.factor(train$`Case Type`)) - 1
+
+X_test <- as.matrix(test[, predictores])
+y_test <- as.numeric(as.factor(test$`Case Type`)) - 1
+```
+
+```{r}
+# Naïve Bayes
+modelo_nb <- entrenar_naive_bayes(as.data.frame(X_train), y_train) #
+pred_nb <- predecir_naive_bayes(modelo_nb, as.data.frame(X_test)) #
+
+# LDA (Análisis Discriminante Lineal)
+modelo_lda <- entrenar_lda(X_train, y_train) #
+pred_lda <- predecir_lda(modelo_lda, X_test) #
+```
+
+```{r}
+# Grid Search para encontrar el mejor k entre 1 y 15
+cat("Iniciando Grid Search para k-NN...\n")
+res_grid_knn <- grid_search_knn(as.data.frame(X_train), y_train, ks = c(1, 3, 5, 7, 9, 11, 15)) #
+
+# Selección del mejor k basado en el accuracy medio de la validación cruzada
+mejor_k <- res_grid_knn$k[which.max(res_grid_knn$accuracy_medio)]
+pred_knn <- predecir_knn(as.data.frame(X_train), y_train, as.data.frame(X_test), k = mejor_k) #
+```
+
+```{r}
+# Bagging (100 árboles de decisión)
+modelo_bag <- entrenar_bagging(as.data.frame(X_train), y_train, n_arboles = 100) #
+pred_bag <- predecir_bagging(modelo_bag, as.data.frame(X_test)) #
+
+# AdaBoost (50 stumps secuenciales)
+modelo_ada <- entrenar_adaboost(as.data.frame(X_train), y_train, n_arboles = 50) #
+pred_ada <- predecir_adaboost(modelo_ada, as.data.frame(X_test)) #
+```
+
+```{r}
+# Predicción final usando tu función predecir_knn
+pred_knn <- predecir_knn(as.data.frame(X_train), y_train, as.data.frame(X_test), k = mejor_k)
+
+# Visualizamos la matriz de confusión de k-NN
+cat("Matriz de Confusión k-NN (k =", mejor_k, "):\n")
+print(table(Predicho = pred_knn, Real = y_test))
+```
+```{r}
+library(randomForest)
+
+# Entrenamiento del modelo
+# ntree = 500 (número de árboles)
+# mtry = sqrt(p) (número de variables candidatas en cada división)
+set.seed(123)
+modelo_rf <- randomForest(x = X_train, 
+                          y = as.factor(y_train), 
+                          ntree = 500, 
+                          importance = TRUE)
+
+# Predicción
+pred_rf <- predict(modelo_rf, newdata = X_test)
+pred_rf_num <- as.numeric(as.character(pred_rf))
+
+cat("Resultados Random Forest:\n")
+print(table(Predicho = pred_rf_num, Real = y_test))
+```
+
+#comparativa modelos 
+```{r}
+# Función para calcular métricas (Accuracy y Sensibilidad)
+metricas_modelo <- function(pred, real) {
+  acc <- mean(pred == real)
+  # Sensibilidad para la clase 1 (Familial)
+  sens <- sum(pred == 1 & real == 1) / sum(real == 1)
+  return(c(Accuracy = acc, Sensibilidad = sens))
+}
+
+# Tabla final de rendimiento
+tabla_final <- rbind(
+  LDA = metricas_modelo(pred_lda, y_test),
+  KNN = metricas_modelo(pred_knn, y_test),
+  AdaBoost = metricas_modelo(pred_ada, y_test),
+  RandomForest = metricas_modelo(pred_rf_num, y_test)
+)
+
+print(round(tabla_final, 4))
+```
+
+
+
